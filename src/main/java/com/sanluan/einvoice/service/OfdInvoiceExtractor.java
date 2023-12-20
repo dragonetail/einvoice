@@ -74,10 +74,10 @@ public class OfdInvoiceExtractor {
         }
         Element details = root.element("GoodsInfos");
         {
-            List<Detail> detailList = new ArrayList<>();
+            List<Invoice.Detail> detailList = new ArrayList<>();
             List<Element> elements = details.elements();
             for (Element element : elements) {
-                Detail detail = new Detail();
+                Invoice.Detail detail = new Invoice.Detail();
                 detail.setName(element.elementTextTrim("Item"));
                 detail.setAmount(new BigDecimal(element.elementTextTrim("Amount")));
                 detail.setTaxAmount(new BigDecimal(element.elementTextTrim("TaxAmount")));

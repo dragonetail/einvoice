@@ -1,6 +1,14 @@
 package com.sanluan.einvoice.service;
 
-import java.awt.Rectangle;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.io.RandomAccessReadBufferedFile;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.PDFTextStripperByArea;
+
+import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -11,24 +19,18 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.text.PDFTextStripper;
-import org.apache.pdfbox.text.PDFTextStripperByArea;
-
 /**
  * 专用于处理电子发票识别的类
- * 
- * @author arthurlee
  *
+ * @author arthurlee
  */
 
 public class PdfInvoiceExtractor {
 
     public static Invoice extract(File file) throws IOException {
         Invoice invoice = new Invoice();
-        PDDocument doc = PDDocument.load(file);
+//        PDDocument doc = PDDocument.load(file);
+        PDDocument doc = Loader.loadPDF(new RandomAccessReadBufferedFile(file));
         PDPage firstPage = doc.getPage(0);
         int pageWidth = Math.round(firstPage.getCropBox().getWidth());
         PDFTextStripper textStripper = new PDFTextStripper();
@@ -37,7 +39,10 @@ public class PdfInvoiceExtractor {
         if (firstPage.getRotation() != 0) {
             pageWidth = Math.round(firstPage.getCropBox().getHeight());
         }
-        String allText = replace(fullText).replaceAll("（", "(").replaceAll("）", ")").replaceAll("￥", "¥");
+        String allText = replace(fullText)
+                .replaceAll("（", "(")
+                .replaceAll("）", ")")
+                .replaceAll("￥", "¥");
         {
             String reg = "机器编号:(?<machineNumber>\\d{12})|发票代码:(?<code>\\d{12})|发票号码:(?<number>\\d{8})|:(?<date>\\d{4}年\\d{2}月\\d{2}日)"
                     + "|校验码:(?<checksum>\\d{20}|\\S{4,})";
@@ -206,7 +211,9 @@ public class PdfInvoiceExtractor {
             }
             {
                 int x = Math.round(buyer.getX()) - 15; // 开户行及账号的x为参考
-                int y = Math.round(machineNumber.getY()) + 10; // 机器编号的y坐标为参考
+                //实际测试，部分发票需要调整不追加10才能识别出购买方的名称
+                //int y = Math.round(machineNumber.getY()) + 10; // 机器编号的y坐标为参考
+                int y = Math.round(machineNumber.getY()) - 20; // 机器编号的y坐标为参考
                 int w = maqX - x - 5; // 密码区x坐标为参考
                 int h = Math.round(buyer.getY()) - y + 20; // 开户行及账号的y坐标为参考
                 stripper.addRegion("buyer", new Rectangle(x, y, w, h));
@@ -262,11 +269,18 @@ public class PdfInvoiceExtractor {
         }
         {
             List<String> skipList = new ArrayList<>();
-            List<Detail> detailList = new ArrayList<>();
-            String[] detailPriceStringArray = stripper.getTextForRegion("detailPrice").replaceAll("　", " ").replaceAll(" ", " ")
+            List<Invoice.Detail> detailList = new ArrayList<>();
+            String[] detailPriceStringArray = stripper.getTextForRegion("detailPrice")
+                    .replaceAll("　", " ")
+                    .replaceAll("￥", "")
+                    .replaceAll("¥", "")
+                    .replaceAll(" ", " ")
                     .replaceAll("\r", "").split("\\n");
-            for (String detailString : detailPriceStringArray) {
-                Detail detail = new Detail();
+            //临时对应，只处理第一行明细数据，不处理后续数据
+//            for (String detailString : detailPriceStringArray) {
+            {
+                String detailString = detailPriceStringArray[0];
+                Invoice.Detail detail = new Invoice.Detail();
                 detail.setName("");
                 String[] itemArray = StringUtils.split(detailString, " ");
                 if (2 == itemArray.length) {
@@ -314,14 +328,14 @@ public class PdfInvoiceExtractor {
                     .replaceAll("\r", "").split("\\n");
             String[] detailStringArray = replace(detailStripper.getTextForRegion("detail")).replaceAll("\r", "").split("\\n");
             int i = 0, j = 0, h = 0, m = 0;
-            Detail lastDetail = null;
+            Invoice.Detail lastDetail = null;
             for (String detailString : detailStringArray) {
                 if (m < detailNameStringArray.length) {
                     if (detailString.matches("\\S+\\d*(%|免税|不征税|出口零税率|普通零税率)\\S*")
                             && !detailString.matches("^ *\\d*(%|免税|不征税|出口零税率|普通零税率)\\S*")
                             && detailString.matches("\\S+\\d+%[\\-\\d]+\\S*")
                             || detailStringArray.length > i + 1
-                                    && detailStringArray[i + 1].matches("^ *\\d*(%|免税|不征税|出口零税率|普通零税率)\\S*")) {
+                            && detailStringArray[i + 1].matches("^ *\\d*(%|免税|不征税|出口零税率|普通零税率)\\S*")) {
                         if (j < detailList.size()) {
                             lastDetail = detailList.get(j);
                             lastDetail.setName(detailNameStringArray[m]);
